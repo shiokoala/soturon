@@ -13,6 +13,7 @@ beta = 0.25
 width = 1000
 height = 800
 
+
  
  class Particle{
    PVector pos
