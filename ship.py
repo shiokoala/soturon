@@ -81,9 +81,9 @@ class Particle:
 
             for w in ww.waves:
                 omega_e = w.omega + w.omega**2 * self.velx / gg
-                tFx += w.calcF(self.posx,t,Fn,omega_e,axis=1)
-                tFz += w.calcF(self.posx,t,Fn,omega_e,axis=3)
-                tMy += w.calcF(self.posx,t,Fn,omega_e,axis=5)
+                tFx += w.calcF(self.posx,t,Fn,omega_e,axis=1)*self.draught/self.ph
+                tFz += w.calcF(self.posx,t,Fn,omega_e,axis=3)*self.draught/self.ph
+                tMy += w.calcF(self.posx,t,Fn,omega_e,axis=5)*self.draught/self.ph
 
             z_t = self.posz - 0.185
             heave = (tFz - self.B33*(self.velz + dt/2*self.accz) - self.C33*(z_t+dt*self.velz+(0.5-beta)*dt*dt*self.accz)) / ((self.mass+self.A33) + dt/2*self.B33 + beta*dt*dt*self.C33)
