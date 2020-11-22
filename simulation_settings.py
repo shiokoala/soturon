@@ -56,9 +56,9 @@ class JONSWAP:
     waves = []
     delta_omega = 0
     max_omega = 0
-    def __init__(self, N, T_1, H_third):
+    def __init__(self, num_waves, T_1, H_third):
         self.waves = []
-        self.N = N
+        self.N = num_waves
         self.T_1 = T_1
         self.H_third = H_third
         self.max_omega = 4*math.pi/self.T_1 * 4

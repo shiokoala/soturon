@@ -6,7 +6,8 @@ gg = constants.gg
 rho = constants.rho
 beta = constants.beta
 dt = constants.dt
-
+# scaling = 25/3.11
+scaling = 1
 
 class Particle:
     posx = 0
@@ -20,12 +21,12 @@ class Particle:
     anglevel = 0
     angleacc = 0
 
-    pl = 3.11
-    ph = 0.34
-    pw = 0.94
-    pv = 0.0878
+    pl = 3.11*scaling
+    ph = 0.34*scaling
+    pw = 0.94*scaling
+    pv = 0.0878*scaling*scaling*scaling
     mass = pv*100
-    cgh = 0.340
+    cgh = 0.340*scaling
 
     draught = 0
 
