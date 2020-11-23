@@ -21,6 +21,8 @@ class Particle:
     anglevel = 0
     angleacc = 0
 
+    wave_incline = 0
+
     pl = 3.11*scaling
     ph = 0.34*scaling
     pw = 0.94*scaling
@@ -62,12 +64,32 @@ class Particle:
         tFz=0
         tMy=0
 
-        average_waveheight = 0
-        res = 50
+        sum_draught = 0
+        res = 3
+
         for i in range(res):
-          average_waveheight += ww.get(self.posx-self.pl/2+self.pl/res*i,t)
-        average_waveheight = average_waveheight/res
-        self.draught = min(max(average_waveheight-(self.posz-self.ph),0), self.ph)
+          cos = math.cos(self.angle)
+          sin = math.sin(self.angle)
+          dl = self.pl/2/(res-1)*cos
+          dh = self.pl/2/(res-1)*sin
+          if(i==0):
+            waveheight = ww.get(self.posx,t)
+            sum_draught += min(max(waveheight-(self.posz-self.ph),0), self.ph)
+          else:
+            xpos1 = self.posx+i*dl
+            xpos2 = self.posx-i*dl
+            zpos1 = self.posz+i*dh
+            zpos2 = self.posz-i*dh
+            waveheight1 = ww.get(xpos1,t)
+            waveheight2 = ww.get(xpos2,t)
+            h_tilt = self.ph/cos
+            sum_draught += min(max(waveheight1-(zpos1-h_tilt),0), h_tilt)
+            sum_draught += min(max(waveheight2-(zpos2-h_tilt),0), h_tilt)
+
+            if(i==res-1): 
+              self.wave_incline = math.atan2((waveheight1-waveheight2),self.pl*cos)
+
+        self.draught = sum_draught/(2*res-1)
             
         nx = math.cos(self.angle - math.pi/2)
         ny = math.sin(self.angle - math.pi/2)
@@ -82,9 +104,12 @@ class Particle:
 
             for w in ww.waves:
                 omega_e = w.omega + w.omega**2 * self.velx / gg
-                tFx += w.calcF(self.posx,t,Fn,omega_e,axis=1)*self.draught/self.ph
-                tFz += w.calcF(self.posx,t,Fn,omega_e,axis=3)*self.draught/self.ph
-                tMy += w.calcF(self.posx,t,Fn,omega_e,axis=5)*self.draught/self.ph
+                # tFx += w.calcF(self.posx,t,Fn,omega_e,axis=1)
+                # tFz += w.calcF(self.posx,t,Fn,omega_e,axis=3)
+                # tMy += w.calcF(self.posx,t,Fn,omega_e,axis=5)
+                tFx += w.calcF(self.posx,t,Fn,omega_e,axis=1)*self.draught/self.ph*100
+                tFz += w.calcF(self.posx,t,Fn,omega_e,axis=3)*self.draught/self.ph*100
+                tMy += w.calcF(self.posx,t,Fn,omega_e,axis=5)*self.draught/self.ph*100
 
             z_t = self.posz - 0.185
             heave = (tFz - self.B33*(self.velz + dt/2*self.accz) - self.C33*(z_t+dt*self.velz+(0.5-beta)*dt*dt*self.accz)) / ((self.mass+self.A33) + dt/2*self.B33 + beta*dt*dt*self.C33)

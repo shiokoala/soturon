@@ -38,8 +38,12 @@ class Wave:
     def calcF(self,x,t,Fn,omega_e,axis):
         fni = round(Fn/(1./40)) #0~40 
         omi = round(omega_e/(1./4)) #0~60
-        if(fni>=41): print(fni)
-        if(omi>=61): print(omi)
+        if(fni>40): 
+            print("Warning! Fn index over 40")
+            fni=40
+        if(omi>60): 
+            print("Warning! Omega_e index over 60")
+            omi=60
 
         j = round((axis-1)/2)
 
