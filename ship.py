@@ -22,6 +22,7 @@ class Particle:
     angleacc = 0
 
     wave_incline = 0
+    # omega_e = 0
 
     pl = 3.11*scaling
     ph = 0.34*scaling
@@ -109,7 +110,7 @@ class Particle:
                 # tMy += w.calcF(self.posx,t,Fn,omega_e,axis=5)
                 tFx += w.calcF(self.posx,t,Fn,omega_e,axis=1)*self.draught/self.ph*100
                 tFz += w.calcF(self.posx,t,Fn,omega_e,axis=3)*self.draught/self.ph*100
-                tMy += w.calcF(self.posx,t,Fn,omega_e,axis=5)*self.draught/self.ph*100
+                tMy += w.calcF(self.posx,t,Fn,omega_e,axis=5)*self.draught/self.ph*10
 
             z_t = self.posz - 0.185
             heave = (tFz - self.B33*(self.velz + dt/2*self.accz) - self.C33*(z_t+dt*self.velz+(0.5-beta)*dt*dt*self.accz)) / ((self.mass+self.A33) + dt/2*self.B33 + beta*dt*dt*self.C33)
