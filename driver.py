@@ -33,7 +33,7 @@ class Driver:
                 temp = np.matmul(input_layer,self.params[0])
             elif(i==self.num_layers-1):
                 output = np.matmul(temp,self.params[i])
-                print(output.shape)
+                # print(output.shape)
             else:
                 temp = np.matmul(temp,self.params[i])
             # print(temp)

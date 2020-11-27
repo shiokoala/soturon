@@ -10,6 +10,7 @@ import matplotlib as mpl
 import matplotlib.patches as patches
 import glob
 import os
+import driver
 
 gg = constants.gg
 rho = constants.rho
@@ -17,11 +18,11 @@ beta = constants.beta
 dt = constants.dt
 
 
-def calcFitness(ww,driver):
+def calcFitness(ww,dd):
     pp = ship.Ship(0,0.18)
     dt = constants.dt
     t=0.0
-    num =10000
+    num =1000
     dl = []
     xl = []
     xvl = []
@@ -43,7 +44,7 @@ def calcFitness(ww,driver):
                                 pp.velz,
                                 pp.angle,
                                 prevForce])
-        force = driver.output(input_array)
+        force = dd.output(input_array)
         prevForce = force
         pp.update(ww,t,force)
 
@@ -60,3 +61,4 @@ def calcFitness(ww,driver):
 
         t+=dt
 
+    
