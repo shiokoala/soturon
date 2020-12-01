@@ -29,6 +29,8 @@ class Ship:
     pw = 0.94*scaling
     pv = 0.0878*scaling*scaling*scaling
     mass = pv*100
+    pitchradius = 0.782
+    inertialmoment = mass*pitchradius**2
     cgh = 0.340*scaling
 
     draught = 0
@@ -124,7 +126,7 @@ class Ship:
         z_t = self.posz - 0.185 - average_wave_height
         heave = (tFz - self.B33*(self.velz + dt/2*self.accz) - 1*self.C33*(z_t+dt*self.velz+(0.5-beta)*dt*dt*self.accz)) / ((self.mass+self.A33) + dt/2*self.B33 + beta*dt*dt*self.C33)
         surge = (tFx - self.B11*(self.velx + dt/2*self.accx)) / ((self.mass+self.A11) + dt/2*self.B11)
-        pitch = (tMy - self.B55*(self.anglevel + dt/2*self.angleacc) - self.C55*(self.angle+dt*self.anglevel+(0.5-beta)*dt*dt*self.angleacc)) / ((self.mass+self.A55) + dt/2*self.B55 + beta*dt*dt*self.C55)
+        pitch = (tMy - self.B55*(self.anglevel + dt/2*self.angleacc) - self.C55*(self.angle+dt*self.anglevel+(0.5-beta)*dt*dt*self.angleacc)) / ((self.inertialmoment+self.A55) + dt/2*self.B55 + beta*dt*dt*self.C55)
 
         mix = self.draught/self.ph
         # coeff = 1/(1+math.exp(-15*(mix-0.4)))
