@@ -42,10 +42,10 @@ class Wave:
         fni =abs(fni)
         omi =abs(omi)
         if(fni>40): 
-            print("Warning! Fn index over 40")
+            # print("Warning! Fn index over 40")
             fni=40
         if(omi>60): 
-            print("Warning! Omega_e index over 60")
+            # print("Warning! Omega_e index over 60")
             omi=60
 
         j = round((axis-1)/2)
