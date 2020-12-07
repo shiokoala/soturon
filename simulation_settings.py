@@ -105,7 +105,7 @@ class Water:
         elif(num==0):
             self.waves.append(Wave(0,0,0))
         else:
-            self.waves.append(Wave(0.2,0.5,0))
+            self.waves.append(Wave(0.2,2*3.14/2.8,0))
             
     def get(self,x,t):
         waveheight = 0

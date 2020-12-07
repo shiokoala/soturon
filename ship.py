@@ -111,14 +111,15 @@ class Ship:
             #Thruster Force
         tFx += thr_f * math.cos(self.angle)
         tFz += thr_f * math.sin(self.angle)
-        tMy += thr_f / self.mass
+        tMy += thr_f * self.ph
 
         #Hydrodynamic Force
         for w in ww.waves:
             omega_e = w.omega + w.omega**2 * self.velx / gg
-            # tFx += w.calcF(self.posx,t,Fn,omega_e,axis=1)
-            # tFz += w.calcF(self.posx,t,Fn,omega_e,axis=3)
-            # tMy += w.calcF(self.posx,t,Fn,omega_e,axis=5)
+            k= 0.1
+            # tFx += w.calcF(self.posx,t,Fn,omega_e,axis=1)*math.exp(-k*(self.posz - 0.185 - average_wave_height))
+            # tFz += w.calcF(self.posx,t,Fn,omega_e,axis=3)*math.exp(-k*(self.posz - 0.185 - average_wave_height))
+            # tMy += w.calcF(self.posx,t,Fn,omega_e,axis=5)*math.exp(-k*(self.posz - 0.185 - average_wave_height))
             tFx += w.calcF(self.posx,t,Fn,omega_e,axis=1)*self.draught/self.ph
             tFz += w.calcF(self.posx,t,Fn,omega_e,axis=3)*self.draught/self.ph
             tMy += w.calcF(self.posx,t,Fn,omega_e,axis=5)*self.draught/self.ph
@@ -128,15 +129,11 @@ class Ship:
         surge = (tFx - self.B11*(self.velx + dt/2*self.accx)) / ((self.mass+self.A11) + dt/2*self.B11)
         pitch = (tMy - self.B55*(self.anglevel + dt/2*self.angleacc) - self.C55*(self.angle+dt*self.anglevel+(0.5-beta)*dt*dt*self.angleacc)) / ((self.inertialmoment+self.A55) + dt/2*self.B55 + beta*dt*dt*self.C55)
 
-        mix = self.draught/self.ph
-        # coeff = 1/(1+math.exp(-15*(mix-0.4)))
-        coeff = 1
-        self.accx = surge*coeff + (1-coeff)*0
-        self.accz = heave*coeff + (1-coeff)*(-9.8)
-        self.angleacc = pitch + (1-coeff)*0
-        # else:
-        #   self.accx = 0
-        #   self.accz = -9.8
+
+        self.accx = surge
+        self.accz = heave
+        self.angleacc = pitch
+
 
     def update(self,ww,t,thr_f):
         self.calcAcc(ww,t,thr_f)
