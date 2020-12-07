@@ -51,7 +51,7 @@ class Wave:
         j = round((axis-1)/2)
 
         coeff =  matrixList[j][fni][omi]*100 #N/cm -> N/m
-        poffset= dmatrixList[j][fni][omi]
+        poffset= dmatrixList[j][fni][omi]*math.pi/180 #deg -> rad
         output = coeff*self.amp*math.sin(self.omega*t + self.k*x + self.phase + poffset)  
         return output #N
 
