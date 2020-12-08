@@ -26,6 +26,7 @@ class Wave:
     k = 0.
     omega = 0.
     phase = 0.
+    lamda = 0.
     def __init__(self, a, o, p):
         self.amp = a
         self.omega = o
@@ -92,20 +93,24 @@ class JONSWAP:
         for w in self.waves:
             waveheight += w.get(x,t)
         return waveheight
+    def getVel(self,x,t):
+        pvelx = 0
+        pvelz = 0
+        for w in self.waves:
+            # z = 
+            coeff = w.omega * w.amp * math.exp(w.k*0)
+            pvelx += coeff*math.sin(w.omega*t-w.k*x)
+            pvelz += coeff*math.cos(w.omega*t-w.k*x)
+        return pvelx,pvelz
+
 
 
 class Water:
     waves = []
-    def __init__(self, num, random_wave):
+    def __init__(self, amp, omega):
         self.waves = []
-        if(random_wave==True):
-            for i in range(num):
-                newWave = Wave(random.uniform(0.01,0.05),random.uniform(1.2,3),random.uniform(1,10))
-                self.waves.append(newWave)
-        elif(num==0):
-            self.waves.append(Wave(0,0,0))
-        else:
-            self.waves.append(Wave(0.2,2*3.14/2.8,0))
+        newWave = Wave(amp,omega,0)
+        self.waves.append(newWave)
             
     def get(self,x,t):
         waveheight = 0

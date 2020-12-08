@@ -108,7 +108,15 @@ class Ship:
         # tFz -= self.mass*gg #Gravity
         
         # if(self.draught>0):
-            #Thruster Force
+            #Thruster Force 
+        #hz = pwm_curve(pwm_us)
+        #particle_velx = w.getVelx(x,t) 
+        #U_rel = (self.velx-particle_velx) 
+        #U_in = -U_rel
+        #if(hz>0):
+        #   thr_f = -0.286*U_in*hz + 0.01375*hz**2
+        #else:
+        #   thr_f = -0.246*U_in*hz - 0.01185*hz**2
         tFx += thr_f * math.cos(self.angle)
         tFz += thr_f * math.sin(self.angle)
         tMy += thr_f * self.ph
