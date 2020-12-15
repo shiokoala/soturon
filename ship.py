@@ -174,24 +174,34 @@ class Ship2:
     velz = 0
     accx = 0
     accz = 0
+
+    IMU_accx = 0
+    IMU_accz = 0
+    IMU_roty = 0
     
-    angle = 0
-    anglevel = 0
-    angleacc = 0
+    angle       = 0
+    anglevel    = 0
+    angleacc    = 0
 
     wave_incline = 0
 
-    pl = 3.11*scaling
-    ph = 0.34*scaling
-    pw = 0.94*scaling
-    pv = 0.0878*scaling*scaling*scaling
-    mass = 86.80879*scaling*scaling*scaling
+    pl          = 3.11*scaling
+    ph          = 0.34*scaling
+    pw          = 0.94*scaling
+    pv          = 0.0878*scaling*scaling*scaling
+    mass        = 86.80879*scaling*scaling*scaling
     pitchradius = 0.782*scaling
-    inertialmoment = mass*pitchradius**2
-    cgh = 0.340*scaling
-    cgl = 1.41 *scaling
+    im          = mass*pitchradius**2
+    cgh         = 0.340*scaling
+    cgl         = 1.41 *scaling
 
-    draught = 0
+    prop_rev    = 0 #hz
+    prop_d      = 76/1000 * scaling
+    control_delay = 0
+    control_rate = 0
+    target_rev = 0
+
+    draught     = 0
 
     # A11 = 0.3 * rho * pv * 0.01 
     A11 = mass*0.01 # "Added mass in surge motion is relatively low in comparison to ship mass"
@@ -222,18 +232,20 @@ class Ship2:
         self.velx = 0
         self.velz = 0
 
-    def calcAcc(self,ww,t,pwm_us):
+    def calcAcc(self,ww,t):
         tFx=0
         tFz=0
         tMy=0
+        self.IMU_accx = 0
+        self.IMU_accz = 0
+        self.IMU_roty = 0
 
         sum_draught = 0
         res = 5
         average_wave_height = 0
-
+        cos = math.cos(self.angle)
+        sin = math.sin(self.angle)
         for i in range(res):
-            cos = math.cos(self.angle)
-            sin = math.sin(self.angle)
             dl = self.pl/2/(res-1)*cos
             dh = self.pl/2/(res-1)*sin
             if(i==0):
@@ -252,53 +264,93 @@ class Ship2:
                 sum_draught += min(max(waveheight2-(zpos2-h_tilt),0), h_tilt)
                 average_wave_height += waveheight1
                 average_wave_height += waveheight2
-            if(i==res-1): 
-                self.wave_incline = math.atan2((waveheight1-waveheight2),self.pl*cos)
+                if(i==res-1): 
+                    self.wave_incline = math.atan2((waveheight1-waveheight2),self.pl*cos)
 
         self.draught = sum_draught/(2*res-1)
         average_wave_height = average_wave_height/(2*res-1)
-            
-        nx = math.cos(self.angle - math.pi/2)
-        ny = math.sin(self.angle - math.pi/2)
 
         Fn = math.fabs(self.velx)/math.sqrt(9.8*self.pl)
 
-        particle_velx = 0
+        pvelx = 0
+        pvelz = 0
 
         #Hydrodynamic Force
         for w in ww.waves:
             omega_e = w.omega + w.omega**2 * self.velx / gg
             # k= 0.1
-            tFx += w.calcF(self.posx,t,Fn,omega_e,axis=1)*self.draught/self.ph
-            tFz += w.calcF(self.posx,t,Fn,omega_e,axis=3)*self.draught/self.ph
-            tMy += w.calcF(self.posx,t,Fn,omega_e,axis=5)*self.draught/self.ph
-            particle_velx += w.getVelx(self.posx-self.pl/2,t) 
+            Fx = w.calcF(self.posx,t,Fn,omega_e,axis=1)*self.draught/self.ph
+            Fz = w.calcF(self.posx,t,Fn,omega_e,axis=3)*self.draught/self.ph
+            My = w.calcF(self.posx,t,Fn,omega_e,axis=5)*self.draught/self.ph
+            tFx += Fx
+            tFz += Fz
+            tMy += My
+            self.IMU_accx += (Fz*sin+Fx*cos)/self.mass
+            self.IMU_accz += (Fz*cos-Fx*sin)/self.mass
+            # particle_velx += w.getVelx(self.posx-self.pl/2,t)
+            coeff = w.omega * w.amp * math.exp(w.k*-self.ph/2)
+            pvelx += coeff*math.sin(w.omega*t-w.k*self.posx)
+            pvelz += coeff*math.cos(w.omega*t-w.k*self.posx)
 
         #Thruster Force 
-        hz = pwm_curve(pwm_us)
-        U_rel = (self.velx-particle_velx) 
-        if(hz>0):
-            thr_f = -0.286*U_rel*hz + 0.01375*hz**2
+        # hz = pwm_curve(pwm_us)
+        n = self.prop_rev
+        U_rel = (self.velx-pvelx)
+        if(n==0):
+            thr_f = 0
+        elif(n>0):
+            # thr_f = -0.286*U_rel*hz + 0.01375*hz**2
+            thr_f = rho*self.prop_d**4*n**2*(-0.362*U_rel/(n*self.prop_d) + 0.445)
         else:
-            thr_f = -0.246*U_rel*hz - 0.01185*hz**2
-        
+            # thr_f = -0.246*U_rel*hz - 0.01185*hz**2
+            thr_f = rho*self.prop_d**4*n**2*(-0.290*U_rel/(-n*self.prop_d) - 0.357)
         thr_f *= 4
-        tFx += thr_f * math.cos(self.angle)
-        tFz += thr_f * math.sin(self.angle)
+        tFx += thr_f * cos
+        tFz += thr_f * sin
         tMy += thr_f * self.ph/2
+        self.IMU_accx += thr_f/self.mass - gg*sin
+        self.IMU_accz += -gg*cos
 
         z_t = self.posz - 0.185 - average_wave_height
         heave = (tFz - self.B33*(self.velz + dt/2*self.accz) - 1*self.C33*(z_t+dt*self.velz+(0.5-beta)*dt*dt*self.accz)) / ((self.mass+self.A33) + dt/2*self.B33 + beta*dt*dt*self.C33)
         surge = (tFx - self.B11*(self.velx + dt/2*self.accx)) / ((self.mass+self.A11) + dt/2*self.B11)
-        pitch = (tMy - self.B55*(self.anglevel + dt/2*self.angleacc) - self.C55*(self.angle+dt*self.anglevel+(0.5-beta)*dt*dt*self.angleacc)) / ((self.inertialmoment+self.A55) + dt/2*self.B55 + beta*dt*dt*self.C55)
+        pitch = (tMy - self.B55*(self.anglevel + dt/2*self.angleacc) - self.C55*(self.angle+dt*self.anglevel+(0.5-beta)*dt*dt*self.angleacc)) / ((self.im+self.A55) + dt/2*self.B55 + beta*dt*dt*self.C55)
 
         self.accx = surge
         self.accz = heave
         self.angleacc = pitch
 
 
-    def update(self,ww,t,pwm_us):
-        self.calcAcc(ww,t,pwm_us)
+    def update(self,ww,t):
+        #PID Controller here
+        target_vel = 0
+        target_acc = 0
+        #update every 100*dt 
+        if(t%(10*dt)<dt and self.control_delay < dt):
+            Pg = 500
+            Ig = 0
+            Dg = 50
+            vel_err = target_vel - self.velx
+            acc_err = target_acc - self.accx
+            self.target_rev = Pg*vel_err + Dg*acc_err
+            if(self.target_rev>54.8): self.target_rev = 54.8
+            if(self.target_rev<-54.1): self.target_rev = -54.1
+            rev_err = self.target_rev - self.prop_rev
+
+            #reverse or not
+            if(self.target_rev*self.prop_rev < 0):
+                self.control_delay = 0.35*4
+            else: 
+                self.control_delay = 0.35*1#*(rev_err/50) ############# max hz needs update
+            self.control_rate = rev_err/self.control_delay
+
+        #change prop rev
+        self.prop_rev += self.control_rate * dt
+        #decrement remaining delay
+        if(self.control_delay > dt): self.control_delay -= dt
+        else: self.control_delay = 0
+
+        self.calcAcc(ww,t)
         self.velx += self.accx*dt
         self.velz += self.accz*dt
         self.anglevel += self.angleacc*dt
