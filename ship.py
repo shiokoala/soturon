@@ -195,11 +195,22 @@ class Ship2:
     cgh         = 0.340*scaling
     cgl         = 1.41 *scaling
 
-    prop_rev    = 0 #hz
-    prop_d      = 76/1000 * scaling
-    control_delay = 0
-    control_rate = 0
-    target_rev = 0
+    power_type      = ''
+    prop_type       = ''
+    prop_rev        = 0 #hz
+    prev_rev        = 0
+    rev_err         = 0
+    prop_d          = 76/1000 * scaling
+    control_delay   = 0
+    control_rate    = 0
+    control_start   = 0
+    time_constant   = 0
+    delayed_rate    = 0
+    transition_delay= 0
+    target_rev      = 0
+    Pg = 0
+    Ig = 0
+    Dg = 0
 
     draught     = 0
 
@@ -224,13 +235,19 @@ class Ship2:
     C33 = 11014
     C55 = 6233
 
-    def __init__(self,x,z):
+    def __init__(self,x,z,P,I,D,power_type,prop_type):
         self.posx = x
         self.posz = z
         self.accx = 0
         self.accz = 0
         self.velx = 0
         self.velz = 0
+
+        self.power_type = power_type
+        self.prop_type  = prop_type
+        self.Pg = P
+        self.Ig = I
+        self.Dg = D
 
     def calcAcc(self,ww,t):
         tFx=0
@@ -325,30 +342,78 @@ class Ship2:
         #PID Controller here
         target_vel = 0
         target_acc = 0
-        #update every 100*dt 
-        if(t%(10*dt)<dt and self.control_delay < dt):
-            Pg = 500
-            Ig = 0
-            Dg = 50
+        # #update target rev every 0.35s 
+        # if(t%(0.35)<dt and self.control_delay < dt):
+        #     vel_err = target_vel - self.velx
+        #     acc_err = target_acc - self.accx
+        #     self.target_rev = self.Pg*vel_err +self.Dg*acc_err
+        #     if(self.target_rev>54.8): self.target_rev = 54.8
+        #     if(self.target_rev<-54.1): self.target_rev = -54.1
+        #     rev_err = self.target_rev - self.prop_rev
+
+        #     #reverse or not
+        #     if(self.power_type == 'engine'):
+        #         if(self.target_rev*self.prop_rev < 0):
+        #             self.control_delay      = 0.35*4
+        #             self.transition_delay   = 0.35*0
+        #         else: 
+        #             self.control_delay      = 0.35*1 
+        #             self.transition_delay   = 0.35*1*((abs(rev_err)+0.01)/54.8)
+        #     elif(self.power_type == 'motor'):
+        #         self.control_delay      = 0.35*0 
+        #         self.transition_delay   = 0.35*1*((abs(rev_err)+0.5)/54.8)
+        #     # self.delayed_rate = rev_err/self.transition_delay
+        #     self.control_rate = rev_err/self.control_delay
+
+
+
+
+
+        # #change prop rev
+        # self.prop_rev += self.control_rate * dt
+        # self.prop_rev = 
+        # if(self.prop_rev>54.8): self.prop_rev = 54.8
+        # if(self.prop_rev<-54.1): self.prop_rev = -54.1
+        # #decrement remaining delay
+        # if(self.control_delay > dt): 
+        #     self.control_delay -= dt
+        # else: 
+        #     self.control_delay = 0
+        #     #keep control rate aligned with delayed rate unless during control delay
+        #     # self.control_rate = self.delayed_rate
+        #     # print(self.control_rate)
+
+        #update target rev every 0.35s 
+        if(t%(0.35)<dt and self.control_delay < dt):
             vel_err = target_vel - self.velx
             acc_err = target_acc - self.accx
-            self.target_rev = Pg*vel_err + Dg*acc_err
+            self.target_rev = self.Pg*vel_err +self.Dg*acc_err
             if(self.target_rev>54.8): self.target_rev = 54.8
             if(self.target_rev<-54.1): self.target_rev = -54.1
-            rev_err = self.target_rev - self.prop_rev
+            self.rev_err = self.target_rev - self.prop_rev
 
             #reverse or not
-            if(self.target_rev*self.prop_rev < 0):
-                self.control_delay = 0.35*4
-            else: 
-                self.control_delay = 0.35*1#*(rev_err/50) ############# max hz needs update
-            self.control_rate = rev_err/self.control_delay
+            if(self.power_type == 'engine'):
+                if(self.target_rev*self.prop_rev < 0):
+                    self.control_delay      = 0.35*4
+                else: 
+                    self.control_delay      = 0.35*1*((abs(self.rev_err)+0.01)/54.8)
+            elif(self.power_type == 'motor'):
+                self.control_delay      = 0.35*1*((abs(self.rev_err)+0.5)/54.8)
+            self.time_constant = self.control_delay
+            self.control_rate = self.rev_err/self.control_delay
+            self.control_start = t
+            self.prev_rev = self.prop_rev
 
         #change prop rev
-        self.prop_rev += self.control_rate * dt
+        self.prop_rev = self.prev_rev+self.rev_err*(1-math.exp(-(t-self.control_start)/self.time_constant))
+        if(self.prop_rev>54.8): self.prop_rev = 54.8
+        if(self.prop_rev<-54.1): self.prop_rev = -54.1
         #decrement remaining delay
-        if(self.control_delay > dt): self.control_delay -= dt
-        else: self.control_delay = 0
+        if(self.control_delay > dt): 
+            self.control_delay -= dt
+        else:
+            self.control_delay = 0
 
         self.calcAcc(ww,t)
         self.velx += self.accx*dt
