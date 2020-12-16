@@ -399,7 +399,7 @@ class Ship2:
                 else: 
                     self.control_delay      = 0.35*1*((abs(self.rev_err)+0.01)/54.8)
             elif(self.power_type == 'motor'):
-                self.control_delay      = 0.35*1*((abs(self.rev_err)+0.5)/54.8)
+                self.control_delay      = 0.35*1#*((abs(self.rev_err)+0.5)/54.8)
             self.time_constant = self.control_delay
             self.control_rate = self.rev_err/self.control_delay
             self.control_start = t
@@ -409,6 +409,219 @@ class Ship2:
         self.prop_rev = self.prev_rev+self.rev_err*(1-math.exp(-(t-self.control_start)/self.time_constant))
         if(self.prop_rev>54.8): self.prop_rev = 54.8
         if(self.prop_rev<-54.1): self.prop_rev = -54.1
+        #decrement remaining delay
+        if(self.control_delay > dt): 
+            self.control_delay -= dt
+        else:
+            self.control_delay = 0
+
+        self.calcAcc(ww,t)
+        self.velx += self.accx*dt
+        self.velz += self.accz*dt
+        self.anglevel += self.angleacc*dt
+        self.posx += self.velx*dt
+        self.posz += self.velz*dt
+        self.angle += self.anglevel*dt
+
+class Ship_cpp:
+    posx = 0
+    posz = 0
+    velx = 0
+    velz = 0
+    accx = 0
+    accz = 0
+
+    IMU_accx = 0
+    IMU_accz = 0
+    IMU_roty = 0
+    
+    angle       = 0
+    anglevel    = 0
+    angleacc    = 0
+
+    wave_incline = 0
+
+    pl          = 3.11*scaling
+    ph          = 0.34*scaling
+    pw          = 0.94*scaling
+    pv          = 0.0878*scaling*scaling*scaling
+    mass        = 86.80879*scaling*scaling*scaling
+    pitchradius = 0.782*scaling
+    im          = mass*pitchradius**2
+    cgh         = 0.340*scaling
+    cgl         = 1.41 *scaling
+
+    prop_rev        = 40 #hz
+    prev_angle      = 0
+    prop_angle      = 0
+    angle_err         = 0
+    prop_d          = 76/1000 * scaling
+    control_delay   = 0
+    control_rate    = 0
+    control_start   = 0
+    time_constant   = 0
+    delayed_rate    = 0
+    transition_delay= 0
+    target_angle    = 0
+    Pg = 0
+    Ig = 0
+    Dg = 0
+
+    draught     = 0
+
+    # A11 = 0.3 * rho * pv * 0.01 
+    A11 = mass*0.01 # "Added mass in surge motion is relatively low in comparison to ship mass"
+    #https://www.tandfonline.com/doi/full/10.1080/17445302.2019.1615705#:~:text=The%20added%20mass%20is%20referred,considerable%20influence%20on%20ship%20manoeuvrability.
+    # A13 = 0
+    # A31 = 0
+    # A53 = 0.1 * rho * pv * pl
+    # A35 = 0.05* rho * pv * pl
+    A33 = 0.3 * rho * pv
+    # A51 = 0.01* rho * pv * pl
+    A55 = 0.07* rho * pv * pl * pl
+    B11 = 2.0* rho * pv * math.sqrt(gg/pl)*0.17
+    # B53 = 0.05* rho * pv * pl * math.sqrt(gg/pl)
+    # B35 = 0.4* rho * pv * pl * math.sqrt(gg/pl)
+    B33 = 2.0* rho * pv * math.sqrt(gg/pl)
+    B55 = 0.4* rho * pv * pl * pl * math.sqrt(gg/pl)
+    # C11 = 0
+    # C53 = 0
+    # C35 = 0
+    C33 = 11014
+    C55 = 6233
+
+    a0  =  0.0296
+    a1  = -0.2758
+    a2  =  0.7244
+    a3  = -0.1450
+    a4  =  0.0501
+    a5  =  0.5259
+
+
+    def __init__(self,x,z,P,I,D):
+        self.posx = x
+        self.posz = z
+        self.accx = 0
+        self.accz = 0
+        self.velx = 0
+        self.velz = 0
+
+        self.Pg = P
+        self.Ig = I
+        self.Dg = D
+
+    def calcAcc(self,ww,t):
+        tFx=0
+        tFz=0
+        tMy=0
+        self.IMU_accx = 0
+        self.IMU_accz = 0
+        self.IMU_roty = 0
+
+        sum_draught = 0
+        res = 5
+        average_wave_height = 0
+        cos = math.cos(self.angle)
+        sin = math.sin(self.angle)
+        for i in range(res):
+            dl = self.pl/2/(res-1)*cos
+            dh = self.pl/2/(res-1)*sin
+            if(i==0):
+                waveheight = ww.get(self.posx,t)
+                sum_draught += min(max(waveheight-(self.posz-self.ph),0), self.ph)
+                average_wave_height += waveheight
+            else:
+                xpos1 = self.posx+i*dl
+                xpos2 = self.posx-i*dl
+                zpos1 = self.posz+i*dh
+                zpos2 = self.posz-i*dh
+                waveheight1 = ww.get(xpos1,t)
+                waveheight2 = ww.get(xpos2,t)
+                h_tilt = self.ph/cos
+                sum_draught += min(max(waveheight1-(zpos1-h_tilt),0), h_tilt)
+                sum_draught += min(max(waveheight2-(zpos2-h_tilt),0), h_tilt)
+                average_wave_height += waveheight1
+                average_wave_height += waveheight2
+                if(i==res-1): 
+                    self.wave_incline = math.atan2((waveheight1-waveheight2),self.pl*cos)
+
+        self.draught = sum_draught/(2*res-1)
+        average_wave_height = average_wave_height/(2*res-1)
+
+        Fn = math.fabs(self.velx)/math.sqrt(9.8*self.pl)
+
+        pvelx = 0
+        pvelz = 0
+
+        #Hydrodynamic Force
+        for w in ww.waves:
+            omega_e = w.omega + w.omega**2 * self.velx / gg
+            # k= 0.1
+            Fx = w.calcF(self.posx,t,Fn,omega_e,axis=1)*self.draught/self.ph
+            Fz = w.calcF(self.posx,t,Fn,omega_e,axis=3)*self.draught/self.ph
+            My = w.calcF(self.posx,t,Fn,omega_e,axis=5)*self.draught/self.ph
+            tFx += Fx
+            tFz += Fz
+            tMy += My
+            self.IMU_accx += (Fz*sin+Fx*cos)/self.mass
+            self.IMU_accz += (Fz*cos-Fx*sin)/self.mass
+            # particle_velx += w.getVelx(self.posx-self.pl/2,t)
+            coeff = w.omega * w.amp * math.exp(w.k*-self.ph/2)
+            pvelx += coeff*math.sin(w.omega*t-w.k*self.posx)
+            pvelz += coeff*math.cos(w.omega*t-w.k*self.posx)
+
+        #Thruster Force 
+        # hz = pwm_curve(pwm_us)
+        n = self.prop_rev
+        U_rel = (self.velx-pvelx)
+        J = U_rel / (n * self.prop_d) if n!=0 else 0
+        Kt = self.a0 + self.a1*J + self.a2*self.prop_angle + self.a3*J**2 + self.a4*J*self.prop_angle + self.a5*self.prop_angle*abs(self.prop_angle)
+        thr_f = rho*Kt*self.prop_d**4*n**2
+        thr_f *= 4
+        tFx += thr_f * cos
+        tFz += thr_f * sin
+        tMy += thr_f * self.ph/2
+        self.IMU_accx += thr_f/self.mass - gg*sin
+        self.IMU_accz += -gg*cos
+
+        z_t = self.posz - 0.185 - average_wave_height
+        heave = (tFz - self.B33*(self.velz + dt/2*self.accz) - 1*self.C33*(z_t+dt*self.velz+(0.5-beta)*dt*dt*self.accz)) / ((self.mass+self.A33) + dt/2*self.B33 + beta*dt*dt*self.C33)
+        surge = (tFx - self.B11*(self.velx + dt/2*self.accx)) / ((self.mass+self.A11) + dt/2*self.B11)
+        pitch = (tMy - self.B55*(self.anglevel + dt/2*self.angleacc) - self.C55*(self.angle+dt*self.anglevel+(0.5-beta)*dt*dt*self.angleacc)) / ((self.im+self.A55) + dt/2*self.B55 + beta*dt*dt*self.C55)
+
+        self.accx = surge
+        self.accz = heave
+        self.angleacc = pitch
+
+
+    def update(self,ww,t):
+        #PID Controller here
+        target_vel = 0
+        target_acc = 0
+
+        #update target angle every 0.35s 
+        if(t%(0.35)<dt and self.control_delay < dt):
+            vel_err = target_vel - self.velx
+            acc_err = target_acc - self.accx
+            self.target_angle = self.Pg*vel_err +self.Dg*acc_err
+            self.target_angle += -0.03971625533 # Kt = 0 @ target_angle = -0.03971625533
+            if(self.target_angle>math.radians(25)): self.target_angle = math.radians(25)
+            if(self.target_angle<math.radians(-20)): self.target_angle = math.radians(-20)
+            self.angle_err = self.target_angle - self.prop_angle
+
+            #reverse or not
+            self.control_delay      = 0.35*1#*((abs(self.angle_err)+0.5)/54.8)
+
+            self.time_constant = self.control_delay
+            self.control_rate = self.angle_err/self.control_delay
+            self.control_start = t
+            self.prev_angle = self.prop_angle
+
+        #change prop angle
+        self.prop_angle = self.prev_angle+self.angle_err*(1-math.exp(-(t-self.control_start)/self.time_constant))
+        # print((t-self.control_start)/self.time_constant)
+        if(self.prop_angle>math.radians(25)): self.prop_angle = math.radians(25)
+        if(self.prop_angle<math.radians(-20)): self.prop_angle = math.radians(-20)
         #decrement remaining delay
         if(self.control_delay > dt): 
             self.control_delay -= dt
