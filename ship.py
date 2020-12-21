@@ -33,9 +33,11 @@ class Ship2:
     accx = 0
     accz = 0
 
+    IMU_en = False
     IMU_accx = 0
     IMU_accz = 0
     IMU_roty = 0
+    IMU_velx = 0
     
     angle       = 0
     anglevel    = 0
@@ -111,7 +113,7 @@ class Ship2:
     a4  =  0.0501
     a5  =  0.5259
 
-    def __init__(self,x,z,P,I,D,power_type,prop_type):
+    def __init__(self,x,z,P,I,D,power_type,prop_type, IMU_en):
         self.posx = x
         self.posz = z
         self.accx = 0
@@ -124,6 +126,8 @@ class Ship2:
         self.Pg = P
         self.Ig = I
         self.Dg = D
+        self.IMU_en = IMU_en
+
         #constant rotation speed for cpp
         if(prop_type == 'cpp'):
             self.prop_rev = 40
@@ -228,8 +232,12 @@ class Ship2:
         #update target every 0.35s 
         if(t%(0.35)<dt and self.control_delay < dt):
             # PD error
-            self.P_vel_err = (target_vel - self.velx)
-            self.P_acc_err = (target_acc - self.accx)
+            if(self.IMU_en==True):
+                self.P_vel_err = target_vel - self.velx
+                self.P_acc_err = target_acc - self.IMU_accx
+            else:
+                self.P_vel_err = target_vel - self.velx
+                self.P_acc_err = target_acc - self.accx
             # set target
             self.P_target_val = (self.Pg*self.P_vel_err +self.Dg*self.P_acc_err)/self.P_target_max # P_target_val -> percent
             self.P_target_val = clamp(self.P_target_val, self.P_target_min/self.P_target_max, 1) #clamp to (-0.8~1.0)
@@ -270,6 +278,7 @@ class Ship2:
         self.posx += self.velx*dt
         self.posz += self.velz*dt
         self.angle += self.anglevel*dt
+        self.IMU_velx += self.IMU_accx*dt
 
 class Ship_cpp:
     posx = 0
@@ -279,6 +288,7 @@ class Ship_cpp:
     accx = 0
     accz = 0
 
+    IMU_en = False
     IMU_accx = 0
     IMU_accz = 0
     IMU_roty = 0
@@ -345,7 +355,7 @@ class Ship_cpp:
     a5  =  0.5259
 
 
-    def __init__(self,x,z,P,I,D):
+    def __init__(self,x,z,P,I,D,IMU_en):
         self.posx = x
         self.posz = z
         self.accx = 0
@@ -356,6 +366,8 @@ class Ship_cpp:
         self.Pg = P
         self.Ig = I
         self.Dg = D
+
+        self.IMU_en = IMU_en
 
     def calcAcc(self,ww,t):
         tFx=0
@@ -448,8 +460,12 @@ class Ship_cpp:
 
         #update target angle every 0.35s 
         if(t%(0.35)<dt and self.control_delay < dt):
-            vel_err = target_vel - self.velx
-            acc_err = target_acc - self.accx
+            if(self.IMU_en):
+                vel_err = target_vel - self.velx
+                acc_err = target_acc - self.IMU_accx
+            else:
+                vel_err = target_vel - self.velx
+                acc_err = target_acc - self.accx
             self.target_angle = self.Pg*vel_err +self.Dg*acc_err
             self.target_angle += -0.03971625533 # Kt = 0 @ target_angle = -0.03971625533
             if(self.target_angle>math.radians(25)): self.target_angle = math.radians(25)
