@@ -6,15 +6,19 @@ import matplotlib.pyplot as plt
 import constants
 
 
-df1=pd.read_csv("Fx.csv",header=-1) #fnq= 41 oq=61  df1[fnq][oq]
-df3=pd.read_csv("Fz.csv",header=-1)
-df5=pd.read_csv("My.csv",header=-1)
-matrixList=[df1,df3,df5]
-ddf1=pd.read_csv("Fxd.csv",header=-1)
-ddf3=pd.read_csv("Fzd.csv",header=-1)
-ddf5=pd.read_csv("Myd.csv",header=-1)
-dmatrixList=[ddf1,ddf3,ddf5]
+# df1=pd.read_csv("Fx.csv",header=-1) #fnq= 41 oq=61  df1[fnq][oq]
+# df3=pd.read_csv("Fz.csv",header=-1)
+# df5=pd.read_csv("My.csv",header=-1)
+# matrixList=[df1,df3,df5]
+# ddf1=pd.read_csv("Fxd.csv",header=-1)
+# ddf3=pd.read_csv("Fzd.csv",header=-1)
+# ddf5=pd.read_csv("Myd.csv",header=-1)
+# dmatrixList=[ddf1,ddf3,ddf5]
 
+df = pd.read_csv('ANALYSIS_forces_180.csv')
+
+matrixList = [df['Fx[N/m]'],df['Fz[N/m]'],df['My[Nm/m]'] ]
+dmatrixList = [df['Fx[deg]'],df['Fz[deg]'],df['My[deg]'] ]
 
 gg = constants.gg
 rho = constants.rho
@@ -27,33 +31,50 @@ class Wave:
     omega = 0.
     phase = 0.
     lamda = 0.
+    period = 0.
     def __init__(self, a, o, p):
         self.amp = a
         self.omega = o
         self.k = o*o/gg
         self.phase = p
+        self.period = 2*math.pi/o
     
     def get(self,x, t):
         return self.amp*math.sin(self.omega*t + self.k*x + self.phase)
 
     def calcF(self,x,t,Fn,omega_e,axis):
-        fni = round(Fn/(1./40)) #0~40 
-        omi = round(omega_e/(1./4)) #0~60
+        # fni = round(Fn/(1./40)) #0~40 
+        # omi = round(omega_e/(1./4)) #0~60
 
-        fni =abs(fni)
-        omi =abs(omi)
-        if(fni>40): 
-            # print("Warning! Fn index over 40")
-            fni=40
-        if(omi>60): 
-            # print("Warning! Omega_e index over 60")
-            omi=60
+        # fni =abs(fni)
+        # omi =abs(omi)
+        # if(fni>40): 
+        #     # print("Warning! Fn index over 40")
+        #     fni=40
+        # if(omi>60): 
+        #     # print("Warning! Omega_e index over 60")
+        #     omi=60
+
+        # j = round((axis-1)/2)
+
+        # coeff =  matrixList[j][fni][omi]*100 #N/cm -> N/m
+        # poffset= dmatrixList[j][fni][omi]*math.pi/180 #deg -> rad
+        # output = coeff*self.amp*math.sin(self.omega*t + self.k*x + self.phase + poffset)  
+        
+        pi = 39-math.floor((self.period-0.35)/0.1699)
+        if(pi>39): 
+            pi=39
+            print(f'period:\t{self.period}')
+        if(pi<0): 
+            pi = 0
+            print(f'period:\t{self.period}')
 
         j = round((axis-1)/2)
-
-        coeff =  matrixList[j][fni][omi]*100 #N/cm -> N/m
-        poffset= dmatrixList[j][fni][omi]*math.pi/180 #deg -> rad
-        output = coeff*self.amp*math.sin(self.omega*t + self.k*x + self.phase + poffset)  
+        coeff =  matrixList[j][pi] #N/m or Nm/m
+        poffset= dmatrixList[j][pi]*math.pi/180 #deg -> rad
+        output = self.amp*coeff*math.sin(self.omega*t + self.k*x + self.phase - poffset)  
+        
+        
         return output #N
 
 
