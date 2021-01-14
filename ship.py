@@ -1,6 +1,9 @@
 import math
 import simulation_settings as ss
 import constants
+from scipy import linalg
+import numpy as np
+import time
 
 gg = constants.gg
 rho = constants.rho
@@ -8,6 +11,7 @@ beta = constants.beta
 dt = constants.dt
 # scaling = 25/3.11
 scaling = 1
+
 
 def clamp(n, minn, maxn):
     return max(min(maxn, n), minn)
@@ -32,6 +36,9 @@ class Ship2:
     velz = 0
     accx = 0
     accz = 0
+
+    velx_prev = 0
+    velz_prev = 0
 
     IMU_en = False
     IMU_accx = 0
@@ -73,7 +80,7 @@ class Ship2:
 
     control_delay   = 0
     control_start   = 0
-    time_constant   = 0
+    time_constant   = 0.35
     delayed_rate    = 0
     transition_delay= 0
     Pg = 0
@@ -94,8 +101,20 @@ class Ship2:
     P_vel_err       = 0
     P_acc_err       = 0
     P_sum_err       = 0
+    P_vel_max       = 0.001
+    P_acc_max       = 0.001
+
+    lqr_p = np.zeros((2,2))
+    lqr_b = np.zeros((1,2))
+    lqr_r = 0
+    target_thr_f = 0
 
     draught     = 0
+
+    fxl = []
+    fzl = []
+
+    Benchmark = False
 
     # A11 = mass*0.01 # "Added mass in surge motion is relatively low in comparison to ship mass"
     # #https://www.tandfonline.com/doi/full/10.1080/17445302.2019.1615705#:~:text=The%20added%20mass%20is%20referred,considerable%20influence%20on%20ship%20manoeuvrability.
@@ -117,15 +136,45 @@ class Ship2:
     # C33 = 11014
     # C55 = 6233
 
+#    ### T=7
+    # A11 = 2 # "Added mass in surge motion is relatively low in comparison to ship mass"
+    # A33 = 390
+    # A55 = 101
+    # B11 = 0.0
+    # B33 = 45
+    # B55 = 0.89
+
+    # ### T=5
+    # A11 = 2 # "Added mass in surge motion is relatively low in comparison to ship mass"
+    # A33 = 394
+    # A55 = 104
+    # B11 = 0.01
+    # B33 = 120
+    # B55 = 2.7
+
 
     ### T=3
     A11 = 2 # "Added mass in surge motion is relatively low in comparison to ship mass"
-    # #https://www.tandfonline.com/doi/full/10.1080/17445302.2019.1615705#:~:text=The%20added%20mass%20is%20referred,considerable%20influence%20on%20ship%20manoeuvrability.
     A33 = 223
     A55 = 137
     B11 = 0.28
     B33 = 386
     B55 = 18.4
+
+    ### T=1
+    # A11 = -0.43 # "Added mass in surge motion is relatively low in comparison to ship mass"
+    # A33 = -32
+    # A55 = -36
+    # B11 = 2.5
+    # B33 = 75
+    # B55 = 278
+
+
+    M11 = mass
+    M33 = mass
+    M55 = mass*pitchradius**2
+
+    C11 = 0
     C33 = 11014
     C55 = 6233
 
@@ -137,9 +186,9 @@ class Ship2:
     a4  =  0.0501
     a5  =  0.5259
 
-    def __init__(self,x,z,P,I,D,power_type,prop_type, IMU_en):
-        self.posx = x
-        self.posz = z
+    def __init__(self,power_type, prop_type, q = np.array([[10**2, 0], [0, 10**6]]),IMU_en=True, Benchmark = False):
+        self.posx = 0
+        self.posz = 0.19
         self.accx = 0
         self.accz = 0
         self.velx = 0
@@ -147,10 +196,9 @@ class Ship2:
 
         self.power_type = power_type
         self.prop_type  = prop_type
-        self.Pg = P
-        self.Ig = I
-        self.Dg = D
+
         self.IMU_en = IMU_en
+        self.Benchmark = Benchmark
 
         #constant rotation speed for cpp
         if(prop_type == 'cpp'):
@@ -160,8 +208,18 @@ class Ship2:
         if(prop_type == 'fpp'):
             self.P_target_max = self.prop_revmax
             self.P_target_min = self.prop_revmin
+        if(Benchmark==True):
+            self.thr_f = 1
 
-    def calcAcc(self,ww,t):
+        a = np.array([[0, 1], [-self.C11/(self.M11+self.A11), -self.B11/(self.M11+self.A11)]])
+        b = np.array([[1/self.B11], [1/(self.M11+self.A11)]])
+        r = 1
+        self.lqr_b = b
+        self.lqr_r = r
+        self.lqr_p = linalg.solve_continuous_are(a,b,q,r)
+
+    def update(self,ww,t):
+        end_time = time.perf_counter()
         tFx=0
         tFz=0
         tMy=0
@@ -170,10 +228,9 @@ class Ship2:
         self.IMU_roty = 0
         pvelx = 0
         pvelz = 0
-
+        
         cos = math.cos(self.angle)
         sin = math.sin(self.angle)
-        Fn = math.fabs(self.velx)/math.sqrt(9.8*self.pl)
 
         # calculate average wave height
         sum_draught = 0
@@ -204,111 +261,137 @@ class Ship2:
         average_wave_height = average_wave_height/(2*res-1)
 
         #Calculate Hydrodynamic Force for each wave
-        for w in ww.waves:
-            omega_e = w.omega + w.omega**2 * self.velx / gg
-            # k= 0.1
-            # Fx = w.calcF(self.posx,t,Fn,omega_e,axis=1)*self.draught/self.ph
-            # Fz = w.calcF(self.posx,t,Fn,omega_e,axis=3)*self.draught/self.ph
-            # My = w.calcF(self.posx,t,Fn,omega_e,axis=5)*self.draught/self.ph
-            Fx = w.calcF(self.posx,t,Fn,omega_e,axis=1)
-            Fz = w.calcF(self.posx,t,Fn,omega_e,axis=3)
-            My = w.calcF(self.posx,t,Fn,omega_e,axis=5)
+
+        self.fxl = []
+        for i, w in enumerate(ww.waves):
+            Fx = w.calcF(self.posx,t,axis=1)
+            Fz = w.calcF(self.posx,t,axis=3)
+            My = w.calcF(self.posx,t,axis=5)
+            if(i==50): print(Fz)
             tFx += Fx
             tFz += Fz
             tMy += My
             self.IMU_accx += (Fz*sin+Fx*cos)/self.mass
             self.IMU_accz += (Fz*cos-Fx*sin)/self.mass
-            # particle_velx += w.getVelx(self.posx-self.pl/2,t)
             coeff = w.omega * w.amp * math.exp(w.k*-self.ph/2)
             pvelx += coeff*math.sin(w.omega*t-w.k*self.posx)
             pvelz += coeff*math.cos(w.omega*t-w.k*self.posx)
+            self.fxl.append(Fx)
+            self.fzl.append(Fz)
+
+
+
+        # LQR Controller
+        
+        #update target every 0.35s 
+        if(t%(0.1)<dt and self.control_delay<=0):
+            x = np.array([self.posx, self.velx])
+            self.target_thr_f = (-1/self.lqr_r * self.lqr_b.T @ self.lqr_p @ x)[0]
+            self.target_thr_f = clamp(self.target_thr_f,-250,250)
+            n = self.prop_rev
+            U_rel = (self.velx-pvelx)
+            J = U_rel / (n * self.prop_d)
+            
+            if(self.prop_type == 'fpp'):
+                Kt = math.pi/8 * (self.prop_ratio**2 - J*abs(J))
+                # Kt = math.pi/8 * (self.prop_ratio**2)
+            elif(self.prop_type == 'cpp'):
+                ########################
+                # self.prop_angle = math.radians(25)
+                ########################
+                Kt = self.a0 + self.a1*J + self.a2*self.prop_angle + self.a3*J**2 + self.a4*J*self.prop_angle + self.a5*self.prop_angle*abs(self.prop_angle)
+
+
+            # if target_thr_f>=0:
+            #     rev_target = math.sqrt(target_thr_f/(rho*Kt*self.prop_d**4))/self.prop_revmax  
+            # else:
+            #     rev_target = -math.sqrt(-target_thr_f/(rho*Kt*self.prop_d**4))/self.prop_revmax
+            # self.P_target_val = rev_target
+            # self.P_target_val = clamp(self.P_target_val, self.P_target_min/self.P_target_max, 1) #clamp to (-0.8~1.0)
+
+            # self.P_err = self.P_target_val - self.P_current_val
+            # self.P_start_val = self.P_current_val
+
+            #delay
+            if(self.power_type == 'engine' and self.prop_type=='fpp'):
+                if(self.target_thr_f*self.thr_f < 0):
+                    self.control_delay      = 0.35*4
+                    # self.control_delay      = 0.1
+                else: 
+                    self.control_delay      = 0.35*1#*((abs(self.rev_err)+0.01)/54.8)
+                    # self.control_delay      = 0.1
+
+            elif(self.power_type == 'motor' or self.prop_type=='cpp'):
+                self.control_delay      = 0.35*1#*((abs(self.rev_err)+0.5)/54.8)
+            self.time_constant = self.control_delay
+            self.control_start = t
+
+        # #change rev or angle
+        # self.P_current_val = self.P_start_val+self.P_err*(1-math.exp(-(t-self.control_start)/self.time_constant))
+        # # print((t-self.control_start))
+        # # self.P_current_val = clamp(self.P_current_val, self.P_target_min/self.P_target_max, 1)
+        # if(self.prop_type=='cpp'): self.prop_angle = self.P_current_val * self.prop_anglemax
+        # if(self.prop_type=='fpp'): self.prop_rev = self.P_current_val * self.prop_revmax
+        # #decrement remaining delay
+        self.control_delay = self.control_delay-dt if self.control_delay > dt else 0
+
 
         #Calculate Thruster Force
+        # self.prop_rev = 1
         n = self.prop_rev
         U_rel = (self.velx-pvelx)
         J = U_rel / (n * self.prop_d) if n!=0 else 0
         if(self.prop_type == 'fpp'):
-            Kt = math.copysign( math.pi/8 * (self.prop_ratio**2 - J**2) , n)
+            Kt = math.pi/8 * (self.prop_ratio**2 - J**2)
+            # Kt = math.copysign(math.pi/8 * (self.prop_ratio**2), n)
+
         elif(self.prop_type == 'cpp'):
+            ########################
+            # self.prop_angle = math.radians(25)
+            ########################
             Kt = self.a0 + self.a1*J + self.a2*self.prop_angle + self.a3*J**2 + self.a4*J*self.prop_angle + self.a5*self.prop_angle*abs(self.prop_angle)
         thr_f = rho*Kt*self.prop_d**4*n**2
-        thr_f *= 4
+        # thr_f *= 4
 ###############################
-        thr_f = 0
+        # thr_f = 0
 ###############################
-        self.thr_f = thr_f
-        tFx += thr_f * cos
-        tFz += thr_f * sin
-        tMy += thr_f * self.ph/2
-        self.IMU_accx += thr_f/self.mass - gg*sin
+        if(self.Benchmark != True):
+            k = self.time_constant/(dt + self.time_constant)
+            self.thr_f = k*self.thr_f + (1-k)*self.target_thr_f
+        tFx += self.thr_f * cos
+        tFz += self.thr_f * sin
+        tMy += self.thr_f * self.ph/2
+        self.IMU_accx += self.thr_f/self.mass - gg*sin
         self.IMU_accz += -gg*cos
 
 
         #Motion Equation (newmark beta)
         z_t = self.posz - 0.185 - average_wave_height
         # z_t = self.posz - 0.19
-        heave = (tFz - self.B33*(self.velz + dt/2*self.accz) - 1*self.C33*(z_t+dt*self.velz+(0.5-beta)*dt*dt*self.accz)) / ((self.mass+self.A33) + dt/2*self.B33 + beta*dt*dt*self.C33)
-        surge = (tFx - self.B11*(self.velx + dt/2*self.accx)) / ((self.mass+self.A11) + dt/2*self.B11)
-        pitch = (tMy - self.B55*(self.anglevel + dt/2*self.angleacc) - self.C55*(self.angle+dt*self.anglevel+(0.5-beta)*dt*dt*self.angleacc)) / ((self.im+self.A55) + dt/2*self.B55 + beta*dt*dt*self.C55)
+        accz_next = (tFz - self.B33*(self.velz + dt/2*self.accz) - 1*self.C33*(z_t+dt*self.velz+(0.5-beta)*dt*dt*self.accz)) / ((self.mass+self.A33) + dt/2*self.B33 + beta*dt*dt*self.C33)
+        accx_next = (tFx - self.B11*(self.velx + dt/2*self.accx)) / ((self.mass+self.A11) + dt/2*self.B11)
+        accp_next = (tMy - self.B55*(self.anglevel + dt/2*self.angleacc) - self.C55*(self.angle+dt*self.anglevel+(0.5-beta)*dt*dt*self.angleacc)) / ((self.im+self.A55) + dt/2*self.B55 + beta*dt*dt*self.C55)
 
-        self.accx = surge
-        self.accz = heave
-        self.angleacc = pitch
+        velx_ship       = self.velx * cos + self.velz * sin
+        velz_ship       = self.velx *-sin + self.velz * cos
+        velx_ship_prev  = self.velx_prev * cos + self.velz_prev * sin
+        velz_ship_prev  = self.velx_prev *-sin + self.velz_prev * cos
 
-
-    def update(self,ww,t):
-        #PID Controller here
-        target_vel = 0
-        target_acc = 0
-
-        #update target every 0.35s 
-        if(t%(0.35)<dt and self.control_delay < dt):
-            # PD error
-            if(self.IMU_en==True):
-                self.P_vel_err = target_vel - self.velx
-                self.P_acc_err = target_acc - self.IMU_accx
-            else:
-                self.P_vel_err = target_vel - self.velx
-                self.P_acc_err = target_acc - self.accx
-            self.P_sum_err += self.P_vel_err
-            # set target
-            self.P_target_val = (self.Pg*self.P_vel_err + self.Ig*self.P_sum_err +self.Dg*self.P_acc_err)/self.P_target_max # P_target_val -> percent
-            self.P_target_val = clamp(self.P_target_val, self.P_target_min/self.P_target_max, 1) #clamp to (-0.8~1.0)
-            
-            # if(self.power_type=='engine' and self.prop_type=='fpp'):
-            #     #rev minimum 18%, cut power if target<9%, 
-            #     if(abs(self.P_target_val)<5/self.prop_revmax): # ~9%
-            #         self.P_target_val = 0
-            #     elif(abs(self.P_target_val)<10/self.prop_revmax): #~18%
-            #         self.P_target_val = math.copysign(10/self.prop_revmax,self.P_target_val)
-            self.P_err = self.P_target_val - self.P_current_val
-            self.P_start_val = self.P_current_val
-
-            #delay
-            if(self.power_type == 'engine' and self.prop_type=='fpp'):
-                if(self.P_target_val*self.P_current_val < 0):
-                    self.control_delay      = 0.35*4
-                else: 
-                    self.control_delay      = 0.35*1#*((abs(self.rev_err)+0.01)/54.8)
-            elif(self.power_type == 'motor' or self.prop_type=='cpp'):
-                self.control_delay      = 0.35*1#*((abs(self.rev_err)+0.5)/54.8)
-            self.time_constant = self.control_delay
-            self.control_start = t
-
-        #change rev or angle
-        self.P_current_val = self.P_start_val+self.P_err*(1-math.exp(-(t-self.control_start)/self.time_constant))
-        # print((t-self.control_start))
-        # self.P_current_val = clamp(self.P_current_val, self.P_target_min/self.P_target_max, 1)
-        if(self.prop_type=='cpp'): self.prop_angle = self.P_current_val * self.prop_anglemax
-        if(self.prop_type=='fpp'): self.prop_rev = self.P_current_val * self.prop_revmax
-        #decrement remaining delay
-        self.control_delay = self.control_delay-dt if self.control_delay > dt else 0
-
-        self.calcAcc(ww,t)
-        self.velx += self.accx*dt
-        self.velz += self.accz*dt
-        self.anglevel += self.angleacc*dt
-        self.posx += self.velx*dt
-        self.posz += self.velz*dt
-        self.angle += self.anglevel*dt
+        self.IMU_accx = (velx_ship - velx_ship_prev)/dt
+        self.IMU_accz = (velz_ship - velz_ship_prev)/dt
+        self.IMU_accz += -gg*cos
         self.IMU_velx += self.IMU_accx*dt
+
+        self.velx_prev = self.velx
+        self.velz_prev = self.velz
+
+        self.velx += 0.5*(self.accx + accx_next)*dt
+        self.velz += 0.5*(self.accz + accz_next)*dt
+        self.anglevel += 0.5*(self.angleacc + accp_next)*dt
+        self.posx += self.velx*dt + (0.5-beta)*self.accx*dt**2 + beta*accx_next*dt**2
+        self.posz += self.velz*dt + (0.5-beta)*self.accz*dt**2 + beta*accz_next*dt**2
+        self.angle += self.anglevel*dt + (0.5-beta)*self.angleacc*dt**2 + beta*accp_next*dt**2
+
+        self.accx = accx_next
+        self.accz = accz_next
+        self.angleacc = accp_next
